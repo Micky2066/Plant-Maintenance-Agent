@@ -136,6 +136,9 @@ st.markdown("""<style>
 .block-container{padding-top:1.1rem}.small{color:#64748b;font-size:.85rem}
 [data-testid="stSidebar"]{background:#101d32}
 [data-testid="stSidebar"] *{color:#eef4ff!important}
+/* Keep selected values readable inside white sidebar selectboxes. */
+[data-testid="stSidebar"] [data-baseweb="select"] *{color:#10233f!important}
+[data-testid="stSidebar"] [data-baseweb="select"]>div{background:#ffffff!important}
 .maia-brand{display:flex;align-items:center;gap:13px;padding:12px 4px 18px 4px;border-bottom:1px solid #dbe4ef;margin-bottom:14px}
 .maia-mark{width:48px;height:48px;border-radius:14px;background:linear-gradient(145deg,#0e7490,#2563eb);display:flex;align-items:center;justify-content:center;color:white;font-size:25px;font-weight:800;box-shadow:0 5px 18px #0e749055}
 .maia-name{font-size:25px;font-weight:800;letter-spacing:2px;color:#10233f;line-height:1.0}
