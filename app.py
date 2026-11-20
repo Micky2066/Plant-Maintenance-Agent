@@ -141,38 +141,286 @@ st.markdown("""<style>
 .maia-name{font-size:25px;font-weight:800;letter-spacing:2px;color:#10233f;line-height:1.0}
 .maia-sub{font-size:10px;letter-spacing:1.4px;color:#64748b;margin-top:5px}
 .hero{background:linear-gradient(110deg,#10233f,#164e63);padding:18px 22px;border-radius:16px;color:white;margin-bottom:16px}
+.tile-wrap{background:#ffffff;border:1px solid #dbe4ef;border-radius:18px;padding:18px 18px 14px 18px;min-height:142px;box-shadow:0 5px 18px rgba(15,35,63,.06);margin-bottom:8px}
+.tile-icon{font-size:27px;margin-bottom:7px}.tile-title{font-size:17px;font-weight:750;color:#10233f}.tile-desc{font-size:12px;color:#64748b;margin-top:5px}
+div.stButton>button{min-height:48px;border-radius:11px;font-weight:700;border:1px solid #cbd5e1}
+div.stButton>button[kind="primary"]{background:linear-gradient(110deg,#0e7490,#2563eb);border:0}
+div[data-testid="stMetric"]{min-height:100px}
+
 .hero h2{color:white;margin:0;font-size:25px}.hero p{color:#d8e9f5;margin:5px 0 0 0}
 div[data-testid="stMetric"]{background:#f7fafc;border:1px solid #e2e8f0;padding:12px 14px;border-radius:12px}
 </style>""",unsafe_allow_html=True)
+
+# Session state for tile-based navigation.
+if "maia_page" not in st.session_state:
+    st.session_state["maia_page"] = "Persona Dashboard"
+
 with st.sidebar:
     st.markdown("""<div class="maia-brand"><div class="maia-mark">M</div><div><div class="maia-name">MAIA</div><div class="maia-sub">AGENTIC MAINTENANCE OS</div></div></div>""",unsafe_allow_html=True)
     st.caption("Manufacturing Asset Intelligence Assistant")
-    role=st.selectbox("Persona",["Section In-charge","Machine Operator","Plant Manager","CFO","Maintenance Manager","OEM / Manufacturer"])
+    role=st.selectbox("Active persona",["Section In-charge","Machine Operator","Plant Manager","CFO","Maintenance Manager","OEM / Manufacturer"], key="maia_role")
     st.session_state["actor"]=role
-    if role=="Section In-charge":
-        section=st.selectbox("My section",["CNC","VMC","SPM","Utilities","Assembly"])
-        pages=["Section Availability","Machine Reliability","Maintenance Tasks","Breakdown Register","AI Assistant"]
-    elif role=="Machine Operator":
-        operator=st.selectbox("Operator",df("Operator_Master").operator_name.tolist())
-        pages=["My Machines & Daily Tasks","Maintenance Schedule","Breakdown Register","AI Assistant"]
-    elif role=="CFO":
-        pages=["Asset Register & Depreciation","Asset Summary","MRO Inventory Intelligence","AI Assistant"]
-    elif role=="Plant Manager":
-        pages=["Plant Dashboard","Section Availability","Machine Reliability","OEM Task Analysis","Asset Summary","MRO Inventory Intelligence","AI Assistant"]
-    elif role=="OEM / Manufacturer":
-        pages=["Equipment Master","OEM Task Analysis","AI Assistant"]
-    else:
-        pages=["Plant Dashboard","Equipment Master","Maintenance Tasks","Breakdown Register","Preventive Maintenance","Machine Reliability","OEM Task Analysis","Asset Register & Depreciation","MRO Inventory Intelligence","Technicians & Workforce","AI Assistant","Excel Import / Export","Audit Trail"]
-    page=st.radio("Navigation",pages)
     st.divider()
     st.caption("DEMO DATA · SYNTHETIC")
     st.caption("100 machines · 5 sections · 5-year history")
     st.caption("Session changes reset on app restart; use external durable storage for production.")
 
+if role=="Section In-charge":
+    section=st.selectbox("My section",["CNC","VMC","SPM","Utilities","Assembly"],key="maia_section")
+    pages=["Section Availability","Machine Reliability","Maintenance Tasks","Breakdown Register","AI Assistant","Agent Control Center"]
+elif role=="Machine Operator":
+    operator=st.selectbox("Operator",df("Operator_Master").operator_name.tolist(),key="maia_operator")
+    pages=["My Machines & Daily Tasks","Maintenance Schedule","Breakdown Register","AI Assistant"]
+elif role=="CFO":
+    pages=["Asset Register & Depreciation","Asset Summary","MRO Inventory Intelligence","Agent Control Center","AI Assistant"]
+elif role=="Plant Manager":
+    pages=["Plant Dashboard","Section Availability","Machine Reliability","OEM Task Analysis","Asset Summary","MRO Inventory Intelligence","Agent Control Center","AI Assistant"]
+elif role=="OEM / Manufacturer":
+    pages=["Equipment Master","OEM Task Analysis","Agent Control Center","AI Assistant"]
+else:
+    pages=["Plant Dashboard","Equipment Master","Maintenance Tasks","Breakdown Register","Preventive Maintenance","Machine Reliability","OEM Task Analysis","Asset Register & Depreciation","MRO Inventory Intelligence","Technicians & Workforce","Agent Control Center","AI Assistant","Excel Import / Export","Audit Trail"]
+
+# Preserve current page only when it is valid for the selected persona.
+if st.session_state.get("maia_page") not in ["Persona Dashboard"] + pages:
+    st.session_state["maia_page"]="Persona Dashboard"
+page=st.session_state["maia_page"]
+
 st.markdown("""<div class="hero"><h2>MAIA | Agentic Maintenance Operating System</h2><p>From equipment reliability to intelligent spare-parts procurement — one connected operating view</p></div>""",unsafe_allow_html=True)
+if page != "Persona Dashboard":
+    if st.button("← Back to workspace tiles",key="back_to_home"):
+        st.session_state["maia_page"]="Persona Dashboard"
+        st.rerun()
+
 eq=df("Equipment_Master"); tasks=df("Maintenance_Tasks_5Y"); bds=df("Breakdown_History_5Y")
 
-if page in ["Plant Dashboard","Section Availability"]:
+
+def maia_log_agent_run(agent_name, scope_type, scope_label, line_item_id="", criteria=None):
+    """Record a manual/selected agent invocation as a prototype run request."""
+    if "Agent_Run_Log" not in st.session_state:
+        st.session_state["Agent_Run_Log"] = pd.DataFrame(columns=[
+            "run_id","requested_at","requested_by","agent_name","scope_type","scope_label",
+            "line_item_id","criteria","status","result_note"
+        ])
+    log=st.session_state["Agent_Run_Log"]
+    run_id=f"AG-{datetime.now().strftime('%Y%m%d%H%M%S')}-{len(log)+1:03d}"
+    rec={"run_id":run_id,"requested_at":datetime.now().isoformat(timespec="seconds"),
+         "requested_by":st.session_state.get("actor","Demo user"),"agent_name":agent_name,
+         "scope_type":scope_type,"scope_label":scope_label,"line_item_id":line_item_id,
+         "criteria":json.dumps(criteria or {},ensure_ascii=False),"status":"Requested – prototype",
+         "result_note":"Run request recorded. Live agent execution and external actions are not connected in this prototype."}
+    st.session_state["Agent_Run_Log"]=pd.concat([log,pd.DataFrame([rec])],ignore_index=True)
+    add_audit("Requested","Agent Run",run_id,f"{agent_name}; {scope_type}; {scope_label}")
+    return run_id
+
+def persona_dashboard():
+    st.subheader(f"{role} Dashboard")
+    st.caption("Role-based operational overview. Select a module tile below to open its workspace.")
+    eqx=df("Equipment_Master")
+    bdx=df("Breakdown_History_5Y")
+    tx=df("Maintenance_Tasks_5Y")
+    if role=="Machine Operator":
+        c1,c2,c3=st.columns(3)
+        c1.metric("Machines in plant",len(eqx))
+        c2.metric("Open maintenance tasks",int((tx.status.astype(str)!="Completed").sum()))
+        c3.metric("Breakdowns in history",len(bdx))
+        a1,a2=st.columns(2)
+        a1.plotly_chart(px.pie(eqx.groupby("section").size().reset_index(name="machines"),names="section",values="machines",hole=.5,title="Plant machine mix"),use_container_width=True)
+        a2.plotly_chart(px.histogram(tx,x="priority",title="Maintenance task priority profile"),use_container_width=True)
+    elif role=="CFO":
+        assets=df("Asset_Register") if "Asset_Register" in st.session_state else eqx
+        c1,c2,c3=st.columns(3)
+        c1.metric("Asset count",len(assets))
+        c2.metric("MRO SKUs",len(df("MRO_Material_Master")))
+        c3.metric("Open purchase orders",len(df("MRO_Open_Purchase_Orders")))
+        if "net_book_value_inr" in assets.columns:
+            st.plotly_chart(px.histogram(assets,x="net_book_value_inr",title="Asset net book value distribution"),use_container_width=True)
+        st.plotly_chart(px.bar(df("MRO_Material_Master").groupby("criticality_class").size().reset_index(name="SKU count"),x="criticality_class",y="SKU count",title="MRO inventory criticality"),use_container_width=True)
+    elif role=="OEM / Manufacturer":
+        recs=df("Manufacturer_Recommendations")
+        c1,c2,c3=st.columns(3)
+        c1.metric("Machines",len(eqx)); c2.metric("OEM task library",len(df("OEM_Task_Library"))); c3.metric("Recommendations",len(recs))
+        st.plotly_chart(px.bar(eqx.groupby("machine_family").size().reset_index(name="assets"),x="machine_family",y="assets",title="Installed base by machine family"),use_container_width=True)
+    elif role=="Section In-charge":
+        secx=section
+        eqs=eqx[eqx.section==secx]; b=bdx[bdx.section==secx]; t=tx[tx.section==secx]
+        c1,c2,c3,c4=st.columns(4)
+        c1.metric("Machines",len(eqs)); c2.metric("Breakdowns",len(b)); c3.metric("Downtime",f"{b.downtime_hours.sum():,.1f} h"); c4.metric("Open tasks",int((t.status.astype(str)!="Completed").sum()))
+        p1,p2=st.columns(2)
+        p1.plotly_chart(px.pie(eqs.groupby("criticality").size().reset_index(name="count"),names="criticality",values="count",hole=.5,title="Asset criticality"),use_container_width=True)
+        p2.plotly_chart(px.bar(t.groupby("priority").size().reset_index(name="tasks"),x="priority",y="tasks",title="Task priority"),use_container_width=True)
+    else:
+        k=calc_kpis(bdx)
+        c1,c2,c3,c4,c5=st.columns(5)
+        c1.metric("Machines",len(eqx)); c2.metric("Breakdowns",k["Breakdowns"]); c3.metric("Downtime",f'{k["Downtime (h)"]} h'); c4.metric("MTTR",f'{k["MTTR (h)"]} h' if k["MTTR (h)"] is not None else "—"); c5.metric("Open tasks",int((tx.status.astype(str)!="Completed").sum()))
+        p1,p2=st.columns(2)
+        p1.plotly_chart(px.pie(bdx.groupby("section").downtime_hours.sum().reset_index(),names="section",values="downtime_hours",hole=.5,title="Downtime by section"),use_container_width=True)
+        p2.plotly_chart(px.bar(eqx.groupby("criticality").size().reset_index(name="machines"),x="criticality",y="machines",title="Asset criticality mix"),use_container_width=True)
+        monthly=bdx.copy()
+        monthly["month"]=pd.to_datetime(monthly.reported_at,errors="coerce").dt.to_period("M").astype(str)
+        trend=monthly.groupby("month").downtime_hours.sum().reset_index()
+        st.plotly_chart(px.line(trend,x="month",y="downtime_hours",markers=True,title="Monthly downtime trend"),use_container_width=True)
+
+    st.markdown("### Workspaces")
+    tile_catalog={
+      "Plant Dashboard":("📊","Plant performance","Reliability, downtime and availability"),
+      "Section Availability":("🏭","Section performance","Section-level asset and reliability view"),
+      "Machine Reliability":("⚙️","Machine reliability","Asset condition and failure indicators"),
+      "Maintenance Tasks":("🧰","Maintenance tasks","Open tasks, assignment and execution"),
+      "Breakdown Register":("🚨","Breakdown register","Breakdown history and reporting"),
+      "Preventive Maintenance":("🗓️","Preventive maintenance","PM history and schedules"),
+      "Equipment Master":("🏗️","Equipment master","Equipment, plans, orders and task lists"),
+      "MRO Inventory Intelligence":("📦","MRO inventory","Spare parts, forecast and replenishment"),
+      "Technicians & Workforce":("👷","Technicians & workforce","Skills, shifts, leave and wrench time"),
+      "Agent Control Center":("🤖","Agent control center","Manual runs, bulk execution and automation rules"),
+      "OEM Task Analysis":("📋","OEM task analysis","OEM task variance and recommendations"),
+      "Asset Register & Depreciation":("💼","Asset register","Asset valuation and depreciation"),
+      "Asset Summary":("📈","Asset analytics","Asset portfolio overview"),
+      "Maintenance Schedule":("🗓️","My maintenance schedule","Assigned daily activities"),
+      "My Machines & Daily Tasks":("🔩","My machines","Operator asset and task view"),
+      "AI Assistant":("💬","Ask MAIA","Conversational maintenance intelligence"),
+      "Excel Import / Export":("📁","Data exchange","Import and export plant data"),
+      "Audit Trail":("🧾","Audit trail","Review recorded changes")
+    }
+    visible=[x for x in pages if x in tile_catalog]
+    for offset in range(0,len(visible),3):
+        cols=st.columns(3)
+        for col,item in zip(cols,visible[offset:offset+3]):
+            icon,title,desc=tile_catalog[item]
+            with col:
+                st.markdown(f'<div class="tile-wrap"><div class="tile-icon">{icon}</div><div class="tile-title">{title}</div><div class="tile-desc">{desc}</div></div>',unsafe_allow_html=True)
+                if st.button(f"Open {title} →",key=f"tile_{role}_{item}",use_container_width=True):
+                    st.session_state["maia_page"]=item
+                    st.rerun()
+
+
+if page=="Persona Dashboard":
+    persona_dashboard()
+
+elif page=="Agent Control Center":
+    st.subheader("Agent Control Center")
+    st.caption("Run agents against one work item, selected work items in bulk, or define condition-based automation rules.")
+    tabs=st.tabs(["Single item run","Bulk run","Automation rules","Run history"])
+    agent_options=["Maintenance Planning Agent","Work Order Agent","Breakdown Analysis Agent","Reliability Agent","Procurement Agent","MRO Inventory Optimisation Agent"]
+    work_orders=df("Maintenance_Orders").copy()
+    if work_orders.empty:
+        work_orders=pd.DataFrame(columns=["order_id","equipment_id","section","status","order_type","scheduled_date"])
+    with tabs[0]:
+        st.markdown("#### Run an agent for one line item")
+        if not work_orders.empty:
+            selected_order=st.selectbox("Maintenance order",work_orders.order_id.astype(str).tolist())
+            selected_agent=st.selectbox("Agent",agent_options,key="single_agent")
+            order_row=work_orders[work_orders.order_id.astype(str)==selected_order].iloc[0]
+            st.info(f"Selected: {selected_order} · Equipment: {order_row.get('equipment_id','—')} · Section: {order_row.get('section','—')}")
+            if st.button("▶ Run agent for this order",type="primary",key="run_single_agent"):
+                rid=maia_log_agent_run(selected_agent,"Single line item",selected_order,selected_order)
+                st.success(f"Run request {rid} recorded.")
+        else:
+            st.info("No maintenance orders are currently available. Create or generate an order from Equipment Master first.")
+        st.markdown("#### Run from maintenance task line items")
+        task_view=tasks.head(100)
+        for _,tr in task_view.iterrows():
+            left,mid,right=st.columns([5,2,2])
+            left.write(f"**{tr.get('task_id')}** · {tr.get('task_title')} · {tr.get('equipment_id')}")
+            mid.caption(str(tr.get("status","")))
+            if right.button("Run agent",key=f"task_agent_{tr.get('task_id')}"):
+                rid=maia_log_agent_run("Work Order Agent","Single task",str(tr.get("task_id")),str(tr.get("task_id")))
+                st.success(f"Request {rid} recorded.")
+    with tabs[1]:
+        st.markdown("#### Select multiple line items")
+        if not work_orders.empty:
+            order_ids=work_orders.order_id.astype(str).tolist()
+            selected_ids=st.multiselect("Select maintenance orders",order_ids,key="bulk_order_ids")
+            bulk_agent=st.selectbox("Agent to run",agent_options,key="bulk_agent")
+            st.caption(f"{len(selected_ids)} orders selected")
+            if st.button("▶ Run agent for selected orders",type="primary",disabled=not selected_ids):
+                rid=maia_log_agent_run(bulk_agent,"Bulk selection",f"{len(selected_ids)} orders",criteria={"order_ids":selected_ids})
+                st.success(f"Bulk run request {rid} recorded for {len(selected_ids)} orders.")
+        else:
+            st.info("No maintenance orders available for bulk execution.")
+        task_ids=tasks.task_id.astype(str).tolist()
+        selected_tasks=st.multiselect("Or select maintenance tasks",task_ids,key="bulk_task_ids")
+        task_agent=st.selectbox("Agent for selected tasks",agent_options,key="bulk_task_agent")
+        if st.button("Run agent for selected tasks",disabled=not selected_tasks):
+            rid=maia_log_agent_run(task_agent,"Bulk task selection",f"{len(selected_tasks)} tasks",criteria={"task_ids":selected_tasks})
+            st.success(f"Bulk run request {rid} recorded.")
+    with tabs[2]:
+        st.markdown("#### Condition-based automation")
+        st.caption("Define when MAIA should propose or queue an agent run. Rules are saved in this demo session; scheduled/background execution is not connected.")
+        if "Agent_Automation_Rules" not in st.session_state:
+            st.session_state["Agent_Automation_Rules"]=pd.DataFrame(columns=["rule_id","rule_name","agent_name","enabled","section","criticality","min_estimated_cost","max_estimated_cost","require_historic_validation","trigger_event","execution_mode"])
+        with st.form("agent_rule_form"):
+            rule_name=st.text_input("Rule name",placeholder="High-value critical machine maintenance review")
+            rule_agent=st.selectbox("Agent",agent_options,key="rule_agent")
+            c1,c2,c3=st.columns(3)
+            rule_section=c1.selectbox("Machine section",["Any","CNC","VMC","SPM","Utilities","Assembly"])
+            rule_criticality=c2.selectbox("Criticality",["Any","High","Medium","Low"])
+            rule_event=c3.selectbox("Trigger condition",["Maintenance order created","PM due","Breakdown reported","Inventory below reorder point","Manual evaluation"])
+            c4,c5=st.columns(2)
+            min_cost=c4.number_input("Minimum estimated cost (₹)",min_value=0.0,value=0.0,step=10000.0)
+            max_cost=c5.number_input("Maximum estimated cost (₹; 0 = no limit)",min_value=0.0,value=0.0,step=10000.0)
+            historic=st.checkbox("Require historical validation before run",value=True)
+            mode=st.radio("Execution mode",["Recommend only","Queue for human approval"],horizontal=True)
+            enabled=st.checkbox("Enable rule",value=True)
+            save_rule=st.form_submit_button("Save automation rule")
+        if save_rule:
+            rules=st.session_state["Agent_Automation_Rules"]
+            rec={"rule_id":f"AR-{len(rules)+1:04d}","rule_name":rule_name or f"Rule {len(rules)+1}","agent_name":rule_agent,"enabled":enabled,"section":rule_section,"criticality":rule_criticality,"min_estimated_cost":min_cost,"max_estimated_cost":max_cost,"require_historic_validation":historic,"trigger_event":rule_event,"execution_mode":mode}
+            st.session_state["Agent_Automation_Rules"]=pd.concat([rules,pd.DataFrame([rec])],ignore_index=True)
+            add_audit("Created","Agent Automation Rule",rec["rule_id"],rec["rule_name"])
+            st.success("Automation rule saved in this session.")
+        rules=st.session_state["Agent_Automation_Rules"]
+        if not rules.empty:
+            st.dataframe(rules,use_container_width=True,hide_index=True)
+            if st.button("Evaluate enabled rules against current maintenance orders",type="primary"):
+                evaluated=0
+                skipped=[]
+                orders_now=df("Maintenance_Orders").copy()
+                eq_now=df("Equipment_Master").copy()
+                bd_now=df("Breakdown_History_5Y").copy()
+                pm_now=df("PM_History_5Y").copy()
+                for rule in rules[rules.enabled.astype(bool)].itertuples():
+                    for order in orders_now.itertuples():
+                        asset_match=eq_now[eq_now.equipment_id.astype(str)==str(order.equipment_id)]
+                        if asset_match.empty:
+                            continue
+                        asset_row=asset_match.iloc[0]
+                        if rule.section!="Any" and str(asset_row.section)!=str(rule.section):
+                            continue
+                        if rule.criticality!="Any" and str(asset_row.criticality)!=str(rule.criticality):
+                            continue
+                        if float(rule.min_estimated_cost)>0 or float(rule.max_estimated_cost)>0:
+                            cost_value=getattr(order,"estimated_cost_inr",None)
+                            if cost_value is None or pd.isna(cost_value):
+                                skipped.append(f"{order.order_id}: cost criteria unavailable; order has no estimated_cost_inr")
+                                continue
+                            if float(cost_value)<float(rule.min_estimated_cost) or (float(rule.max_estimated_cost)>0 and float(cost_value)>float(rule.max_estimated_cost)):
+                                continue
+                        if bool(rule.require_historic_validation):
+                            has_bd=(bd_now.equipment_id.astype(str)==str(order.equipment_id)).any()
+                            has_pm=(pm_now.equipment_id.astype(str)==str(order.equipment_id)).any()
+                            if not (has_bd or has_pm):
+                                skipped.append(f"{order.order_id}: no breakdown or PM history found")
+                                continue
+                        rid=maia_log_agent_run(rule.agent_name,"Rule evaluation candidate",str(order.order_id),str(order.order_id),
+                            criteria={"rule_id":rule.rule_id,"section":rule.section,"criticality":rule.criticality,
+                                      "require_historic_validation":bool(rule.require_historic_validation),
+                                      "execution_mode":rule.execution_mode})
+                        evaluated+=1
+                st.success(f"Rule evaluation complete. {evaluated} candidate run request(s) recorded for review.")
+                if skipped:
+                    st.warning("Skipped items: "+" | ".join(skipped[:8]))
+            st.caption("Rules can be evaluated manually against current orders. Background event listeners, scheduled execution and live agent execution are not connected yet. Requests are logged for review; they do not execute external actions.")
+    with tabs[3]:
+        st.markdown("#### Agent run requests")
+        runs=st.session_state.get("Agent_Run_Log",pd.DataFrame())
+        if runs.empty: st.info("No agent run requests yet.")
+        else: st.dataframe(runs.sort_values("requested_at",ascending=False),use_container_width=True,hide_index=True)
+
+elif page=="Plant Dashboard":
+    st.session_state["maia_page"]="Persona Dashboard"
+    st.rerun()
+
+elif page in ["Plant Dashboard","Section Availability"]:
     if page=="Section Availability":
         sec=section if role=="Section In-charge" else st.selectbox("Section",["CNC","VMC","SPM","Utilities","Assembly"])
         eqs=eq[eq.section==sec]; b=filtered_breakdowns(section=sec)
@@ -356,6 +604,10 @@ elif page=="Equipment Master":
                 st.dataframe(asset_orders.sort_values("created_at",ascending=False),use_container_width=True,hide_index=True)
                 order_id=st.selectbox("Select maintenance order",asset_orders.order_id.tolist(),key=f"selorder_{chosen}")
                 selected_order=asset_orders[asset_orders.order_id==order_id].iloc[0]
+                order_agent=st.selectbox("Agent for this order",["Maintenance Planning Agent","Work Order Agent","Reliability Agent","Procurement Agent"],key=f"order_agent_{chosen}")
+                if st.button("▶ Run agent for this order",type="primary",key=f"run_order_{chosen}"):
+                    rid=maia_log_agent_run(order_agent,"Single maintenance order",str(order_id),str(order_id))
+                    st.success(f"Agent run request {rid} recorded. Review it in Agent Control Center.")
                 order_task_ids=str(selected_order.task_list_ids).split(";") if str(selected_order.task_list_ids).strip() else []
                 order_tasks=asset_tasks[asset_tasks.task_list_id.astype(str).isin(order_task_ids)].copy()
                 st.markdown("##### Order task list")
@@ -535,6 +787,14 @@ elif page=="Maintenance Tasks":
     open_tasks=tasks[tasks.status!="Completed"]
     st.metric("Open tasks",len(open_tasks))
     st.dataframe(tasks.sort_values("created_date",ascending=False),use_container_width=True,hide_index=True)
+    st.markdown("#### Run an agent against an individual task")
+    task_choices=tasks.task_id.astype(str).tolist()
+    if task_choices:
+        task_for_agent=st.selectbox("Select task line",task_choices,key="task_line_agent_select")
+        agent_for_task=st.selectbox("Agent",["Work Order Agent","Maintenance Planning Agent","Breakdown Analysis Agent","Reliability Agent"],key="task_line_agent_type")
+        if st.button("▶ Run agent for selected task",type="primary"):
+            rid=maia_log_agent_run(agent_for_task,"Single task",task_for_agent,task_for_agent)
+            st.success(f"Agent run request {rid} recorded. Review it in Agent Control Center.")
     st.markdown("#### Create a new maintenance task")
     with st.form("newtask"):
         x,y,z=st.columns(3)
